@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<title>Depthkit Stream - Simple example of a volumnetric stream w Three.js</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<style>
+		body {
+			background: #000;
+			color: #fff;
+			padding: 0;
+			margin: 0;
+			overflow: hidden;
+			font-family: georgia;
+			text-align: center;
+		}
+
+		video
+		{
+			position: fixed;
+			z-index: 100;
+			top: 0; left: 0;
+			width: 10%;
+		}
+
+		a {
+			color: skyblue;
+			text-decoration: none
+		}
+
+		#info {
+			position: absolute;
+			width: 100%;
+		}
+		#depthkit-video{
+			position:absolute;
+			top: 0; left: 0;
+			width: 20%;
+		}
+		#error {
+			color: rgb(255, 80, 80);
+			background-color: rgba(0,0,0,0.5);
+			
+			width: 100%;
+
+		}
+	</style>
+</head>
+
+<body>
+
+	<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+	<!--Three.js-->
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/98/three.min.js"></script>
+	<!-- Orbit Controls -->
+	<script src="OrbitControls.js"></script>
+	<!--Depthkit.js-->
+	<script src="depthkit.min.js"></script>
+
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.6/dat.gui.min.js"></script>
+
+    <div id="info">
+		Volumnetric Stream example, assumes HLS stream and stacked RGB+D textures
+		<div id="error"></div>
+    </div>
+	<script>
+
+		//Some general Three.js components
+		var renderer,
+		scene,
+		camera,
+		controls;
+
+		var depthkit;
+		var dkstream;
+
+		function showError(err){
+			document.getElementById("error").innerHTML = err;
+		}
+
+		var doRender = true;
+
+		init();
+
+		function xhr_override_test (xhr, u){
+			console.log(`xhr_override_test ${u}`);
+			xhr.open("GET", u);
+          }
+
+		async function init() {
+
+			//Setup renderer
+			renderer = new THREE.WebGLRenderer();
+			renderer.setPixelRatio( window.devicePixelRatio );
+			renderer.setSize( window.innerWidth, window.innerHeight );
+			document.body.appendChild( renderer.domElement );
+
+			// Setup scene
+			scene = new THREE.Scene();
+			scene.background = new THREE.Color( 0x282828 );
+			scene.fog = new THREE.Fog( 0x282828, 0.0, 10.0 );
+
+			// Setup camera
+			camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, .01, 20 );
+			camera.position.set( 0, 2, 3 );
+
+			// Setup controls
+			controls = new THREE.OrbitControls( camera, renderer.domElement );
+			controls.target.set(0, 0.75, 0);
+			camera.lookAt(controls.target);
+
+			const params = {
+				videoPath: "http://localhost:8080/live/depthkit/index.m3u8",
+				renderMode : 'perspective',
+				pointSize: 8.0,
+				depthMin: 0.1,
+				depthMax: 4.0,
+				textureWidth: 320,
+				textureHeight: 240,
+				render: true,				
+				load: function() { 
+					load( params ); 
+				},
+			}
+
+			const gui = new dat.GUI();
+			
+			gui.remember(params);
+
+
+
+			gui.add(params, "videoPath");
+			gui.add(params, "renderMode", [ 'ortho', 'perspective', 'cutout' ] );
+			gui.add(params, "pointSize").min(1).max(20).step(1);
+			gui.add(params, "depthMin").min(0).max(2).step(0.01);
+			gui.add(params, "depthMax").min(1).max(6).step(0.01);
+			gui.add(params, "textureWidth");
+			gui.add(params, "textureHeight");
+			gui.add(params, "load").name('Load');
+			gui.add(params, "render").listen().onChange( function(value)
+			{
+				console.log("Render:" +value);
+				toggle();
+
+			});
+
+	
+
+			// A grid helper as a floor reference
+			var gridHelper = new THREE.GridHelper( 50, 50 );
+			scene.add(gridHelper);
+
+			vptstream = new VPTStream();
+			//vptstream.hls_xhroverride = xhr_override_test;
+			
+			document.body.appendChild(vptstream.video);
+
+			vptstream.addEventListener( STREAMEVENTS.PLAY_SUCCESS, function ( event ) { 
+				console.log( `${event.type} ${event.message}` );
+			} );
+
+			vptstream.addEventListener( STREAMEVENTS.PLAY_ERROR, function ( event ) { 
+				console.log( `${event.type} ${event.message}` );
+			} );
+
+			scene.add(vptstream);
+
+			window.addEventListener( 'resize', onWindowResize, false );
+
+			render();
+
+		}
+
+		
+		async function load( params ){
+
+			let url = params.videoPath;
+			fileExtension = url.substr((url.lastIndexOf('.') + 1));
+
+			console.log(fileExtension);
+			if( fileExtension != "m3u8"){
+				try {
+					url = await fetch (url);
+					url = await url.text();
+				
+				} catch (error) {
+					// show error
+					showError( error.message );
+				}
+			}
+		
+			params.videoPath = url;
+			params.meta = {	
+				"depthFocalLength" : {
+					"x" : 639.294,
+					"y" : 639.294
+				},
+				"depthImageSize" : {
+					"x" : 640,
+					"y" : 480
+				},
+				"depthPrincipalPoint" : {
+					"x" : 331.706,
+					"y" : 236.211
+				}	 
+			}
+			vptstream.load( params );
+
+		}
+
+		function toggle( )
+		{
+			doRender = !doRender;
+		}
+
+		function render() {
+
+			if( doRender){
+				renderer.render( scene, camera );
+			}
+			
+			requestAnimationFrame( render );
+		}
+
+		function onWindowResize() {
+
+			camera.aspect = window.innerWidth / window.innerHeight;
+			camera.updateProjectionMatrix();
+			renderer.setSize( window.innerWidth, window.innerHeight );
+
+		}
+
+	</script>
+
+</body>
+
+</html>
