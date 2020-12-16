@@ -52,11 +52,11 @@
 
 	<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 	<!--Three.js-->
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/98/three.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r123/three.min.js"></script>
 	<!-- Orbit Controls -->
-	<script src="OrbitControls.js"></script>
+	<script src="lib/OrbitControls.js"></script>
 	<!--Depthkit.js-->
-	<script src="depthkit.min.js"></script>
+	<script src="depthkit.js"></script>
 
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.6/dat.gui.min.js"></script>
 
@@ -65,7 +65,9 @@
 		<div id="error"></div>
     </div>
 	<script>
-
+		if (Hls.isSupported()) {
+			var hlstmp = new Hls();
+		}
 		//Some general Three.js components
 		var renderer,
 		scene,
@@ -113,9 +115,10 @@
 			const params = {
 				videoPath: "http://localhost:8080/live/depthkit/index.m3u8",
 				renderMode : 'perspective',
-				pointSize: 8.0,
+				pointSize: 8.0,				
 				depthMin: 0.1,
 				depthMax: 4.0,
+				scale: 1.0,
 				textureWidth: 320,
 				textureHeight: 240,
 				render: true,				
@@ -128,13 +131,20 @@
 			
 			gui.remember(params);
 
-
-
 			gui.add(params, "videoPath");
 			gui.add(params, "renderMode", [ 'ortho', 'perspective', 'cutout' ] );
-			gui.add(params, "pointSize").min(1).max(20).step(1);
+			gui.add(params, "pointSize").min(1).max(20).step(1).onChange(
+				(newValue) => {
+					console.log("pointSize changed to:  ", newValue);
+					update("pointSize", newValue);
+				});
 			gui.add(params, "depthMin").min(0).max(2).step(0.01);
 			gui.add(params, "depthMax").min(1).max(6).step(0.01);
+			gui.add(params, "scale").min(0).max(5).step(0.1).onChange(
+				(newValue) => {
+					console.log("scale changed to:  ", newValue);
+					update("scale", newValue);
+				});;
 			gui.add(params, "textureWidth");
 			gui.add(params, "textureHeight");
 			gui.add(params, "load").name('Load');
@@ -172,9 +182,14 @@
 
 		}
 
+
+		async function update( param, value ){
+			vptstream.updateParameter( param, value);
+		}
 		
 		async function load( params ){
-
+			console.log(`load ${params}`);
+			
 			let url = params.videoPath;
 			fileExtension = url.substr((url.lastIndexOf('.') + 1));
 
