@@ -669,7 +669,7 @@ var VPTStream = function (_THREE$Object3D) {
               },
               "pointSize": {
                 type: "f",
-                value: this.params.pointSize * 10.0
+                value: this.params.pointSize
               },
               "depthMin": {
                 type: "f",
