@@ -54,7 +54,7 @@
 	<!--Three.js-->
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r123/three.min.js"></script>
 	<!-- Orbit Controls -->
-	<script src="OrbitControls.js"></script>
+	<script src="rbitControls.js"></script>
 	<!--Depthkit.js-->
 	<script src="depthkit.js"></script>
 
@@ -138,8 +138,6 @@
 					console.log("pointSize changed to:  ", newValue);
 					update("pointSize", newValue);
 				});
-			gui.add(params, "depthMin").min(0).max(2).step(0.01);
-			gui.add(params, "depthMax").min(1).max(6).step(0.01);
 			gui.add(params, "scale").min(0).max(5).step(0.1).onChange(
 				(newValue) => {
 					console.log("scale changed to:  ", newValue);
@@ -174,6 +172,7 @@
 				console.log( `${event.type} ${event.message}` );
 			} );
 
+		
 			scene.add(vptstream);
 
 			window.addEventListener( 'resize', onWindowResize, false );
@@ -182,8 +181,11 @@
 
 		}
 
-
 		async function update( param, value ){
+			if( param == "scale")
+			{
+				vptstream.scale.set( value,value, value);
+			}
 			vptstream.updateParameter( param, value);
 		}
 		
