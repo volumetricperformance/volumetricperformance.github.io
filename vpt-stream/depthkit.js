@@ -468,7 +468,10 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var glsl = require('glslify');
 
 var rgbdFrag = glsl(["#define GLSLIFY 1\nuniform sampler2D map;\nuniform float opacity;\nuniform float width;\nuniform float height;\n\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\nvoid main() {\n\n    if( ptColor.a <= 0.0){\n        discard;\n    }\n\n    vec4 colorSample = ptColor;\n    colorSample.a *= (ptColor.a * opacity);\n\n    gl_FragColor = colorSample;\n}"]);
-var rgbdVert = glsl(["#define GLSLIFY 1\nuniform vec2 focalLength;//fx,fy\nuniform vec2 principalPoint;//ppx,ppy\nuniform vec2 imageDimensions;\nuniform mat4 extrinsics;\nuniform float width;\nuniform float height;\nuniform float scale;\nuniform sampler2D map;\n\nuniform float pointSize;\nuniform float depthMin;\nuniform float depthMax;\n\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\nconst float _DepthSaturationThreshhold = 0.3; //a given pixel whose saturation is less than half will be culled (old default was .5)\nconst float _DepthBrightnessThreshold = 0.3; //a given pixel whose brightness is less than half will be culled (old default was .9)\nconst float  _Epsilon = .03;\n\n#define BRIGHTNESS_THRESHOLD_OFFSET 0.01\n#define FLOAT_EPS 0.00001\n#define CLIP_EPSILON 0.005\n\nvec3 rgb2hsv(vec3 c)\n{\n    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n    float d = q.x - min(q.w, q.y);\n    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + FLOAT_EPS)), d / (q.x + FLOAT_EPS), q.x);\n}\n\nfloat depthForPoint(vec2 texturePoint)\n{       \n    vec2 centerpix = vec2(1.0/width, 1.0/height) * 0.5;\n    texturePoint += centerpix;\n\n    // clamp to texture bounds - 0.5 pixelsize so we do not sample outside our texture\n    texturePoint = clamp(texturePoint, centerpix, vec2(1.0, 0.5) - centerpix);\n    vec4 depthsample = texture2D(map, texturePoint);\n    vec3 depthsamplehsv = rgb2hsv(depthsample.rgb);\n    return depthsamplehsv.b > _DepthBrightnessThreshold + BRIGHTNESS_THRESHOLD_OFFSET ? depthsamplehsv.r : 0.0;\n}\n\nvoid main()\n{   \n    vec4 texSize = vec4(1.0 / width, 1.0 / height, width, height);\n    vec2 basetex = position.xy + vec2(0.5,0.5);\n\n    // we align our depth pixel centers with the center of each quad, so we do not require a half pixel offset\n    vec2 depthTexCoord = basetex * vec2(1.0, 0.5);\n    vec2 colorTexCoord = basetex * vec2(1.0, 0.5) + vec2(0.0, 0.5);\n\n    float depth = depthForPoint(depthTexCoord);\n    float mindepth = depthMin;\n    float maxdepth = depthMax;\n\n    float z = depth * (maxdepth - mindepth) + mindepth;\n    vec2 ortho = basetex * imageDimensions - principalPoint;\n    vec2 proj = ortho * z / focalLength;\n    vec4 worldPos = extrinsics *  vec4(proj.xy, z, 1.0);\n    worldPos.w = 1.0;\n\n    vec4 mvPosition = vec4( worldPos.xyz, 1.0 );\n    mvPosition = modelViewMatrix * mvPosition;\n\n    ptColor = texture2D(map, colorTexCoord);\n    ptColor.a = z < 0.1 || z > 4.0 || depth <= 0.0 ? 0.0 : 1.0;\n\n    gl_Position = projectionMatrix * modelViewMatrix * worldPos;\n    vUv = uv;\n    debug = vec3(1, 0.5, 0.0);\n\n    gl_PointSize = pointSize;\n    gl_PointSize *= ( scale / - mvPosition.z );\n\n}\n"]);
+var rgbdVert = glsl(["#define GLSLIFY 1\nuniform vec2 focalLength;//fx,fy\nuniform vec2 principalPoint;//ppx,ppy\nuniform vec2 imageDimensions;\nuniform mat4 extrinsics;\nuniform float width;\nuniform float height;\nuniform float scale;\nuniform sampler2D map;\n\nuniform float pointSize;\nuniform float depthMin;\nuniform float depthMax;\nuniform vec3 thresholdMin;\nuniform vec3 thresholdMax;\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\nconst float _DepthSaturationThreshhold = 0.3; //a given pixel whose saturation is less than half will be culled (old default was .5)\nconst float _DepthBrightnessThreshold = 0.3; //a given pixel whose brightness is less than half will be culled (old default was .9)\nconst float  _Epsilon = .03;\n\n#define BRIGHTNESS_THRESHOLD_OFFSET 0.01\n#define FLOAT_EPS 0.00001\n#define CLIP_EPSILON 0.005\n\nvec3 rgb2hsv(vec3 c)\n{\n    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n    float d = q.x - min(q.w, q.y);\n    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + FLOAT_EPS)), d / (q.x + FLOAT_EPS), q.x);\n}\n\nfloat depthForPoint(vec2 texturePoint)\n{       \n    vec2 centerpix = vec2(1.0/width, 1.0/height) * 0.5;\n    texturePoint += centerpix;\n\n    // clamp to texture bounds - 0.5 pixelsize so we do not sample outside our texture\n    texturePoint = clamp(texturePoint, centerpix, vec2(1.0, 0.5) - centerpix);\n    vec4 depthsample = texture2D(map, texturePoint);\n    vec3 depthsamplehsv = rgb2hsv(depthsample.rgb);\n    return depthsamplehsv.b > _DepthBrightnessThreshold + BRIGHTNESS_THRESHOLD_OFFSET ? depthsamplehsv.r : 0.0;\n}\n\n//https://stackoverflow.com/questions/12751080/glsl-point-inside-box-test/37426532\nfloat insideBox3D(vec3 v, vec3 bottomLeft, vec3 topRight) {\n    vec3 s = step(bottomLeft, v) - step(topRight, v);\n    return s.x * s.y * s.z; \n}\n\nvoid main()\n{   \n    vec4 texSize = vec4(1.0 / width, 1.0 / height, width, height);\n    vec2 basetex = position.xy + vec2(0.5,0.5);\n\n    // we align our depth pixel centers with the center of each quad, so we do not require a half pixel offset\n    vec2 depthTexCoord = basetex * vec2(1.0, 0.5);\n    vec2 colorTexCoord = basetex * vec2(1.0, 0.5) + vec2(0.0, 0.5);\n\n    float depth = depthForPoint(depthTexCoord);\n    float mindepth = depthMin;\n    float maxdepth = depthMax;\n\n    float z = depth * (maxdepth - mindepth) + mindepth;\n    vec2 ortho = basetex * imageDimensions - principalPoint;\n    vec2 proj = ortho * z / focalLength;\n    vec4 worldPos = extrinsics *  vec4(proj.xy, z, 1.0);\n    worldPos.w = 1.0;\n\n    vec4 mvPosition = vec4( worldPos.xyz, 1.0 );\n    mvPosition = modelViewMatrix * mvPosition;\n    ptColor = texture2D(map, colorTexCoord);\n\n    ptColor.a = insideBox3D(worldPos.xyz, thresholdMin, thresholdMax ) > 0.0 && depth > 0.0 ? 1.0 : 0.0;\n\n    float rot = 3.14159;\n    mat4 flip = mat4(  vec4(-1.0,0.0,0.0,0.0),\n                        vec4(0.0,1.0,0.0,0.0),\n                        vec4(0.0,0.0,1.0,0.0),\n                        vec4(0.0,0.0,0.0,1.0));\n    \n    gl_Position = projectionMatrix * modelViewMatrix * flip * worldPos;\n    vUv = uv;\n    debug = vec3(1, 0.5, 0.0);\n\n    gl_PointSize = pointSize;\n    gl_PointSize *= ( scale / - mvPosition.z );\n\n}\n"]);
+
+var rgbdFrag_rs2 = glsl(["#define GLSLIFY 1\nuniform sampler2D map;\nuniform float opacity;\nuniform float width;\nuniform float height;\n\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\nvoid main() {\n\n    if( ptColor.a <= 0.0){\n        discard;\n    }\n\n    vec4 colorSample = ptColor;\n    colorSample.a *= (ptColor.a * opacity);\n\n    gl_FragColor = colorSample;\n}"]);
+var rgbdVert_rs2 = glsl(["#define GLSLIFY 1\nuniform vec2 focalLength;//fx,fy\nuniform vec2 principalPoint;//ppx,ppy\nuniform vec2 imageDimensions;\nuniform mat4 extrinsics;\n\nuniform float width;\nuniform float height;\nuniform float scale;\nuniform sampler2D map;\n\nuniform float pointSize;\nuniform float depthMin;\nuniform float depthMax;\n\nuniform float min_disparity;\nuniform float max_disparity;\n\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\nconst float _DepthSaturationThreshhold = 0.3; //a given pixel whose saturation is less than half will be culled (old default was .5)\nconst float _DepthBrightnessThreshold = 0.3; //a given pixel whose brightness is less than half will be culled (old default was .9)\nconst float  _Epsilon = .03;\n\n#define BRIGHTNESS_THRESHOLD_OFFSET 0.01\n#define FLOAT_EPS 0.00001\n#define CLIP_EPSILON 0.005\n#define DEPTH_UNITS 0.001\n\nvec3 rgb2hsv(vec3 c)\n{\n    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n    float d = q.x - min(q.w, q.y);\n    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + FLOAT_EPS)), d / (q.x + FLOAT_EPS), q.x);\n}\n\nfloat RGBtoD(vec3 c)\n{\n\t// conversion from RGB color to quantized depth value\n\tif ( (c.b + c.g + c.r) < 255.0)\n\t{\n\t\treturn 0.0;\n\t}\n\telse if (c.r >= c.g && c.r >= c.b)\n\t{\n\t\tif (c.g >= c.b)\n\t\t{\t\n\t\t\treturn c.g - c.b;\n\t\t}\n\t\telse\n\t\t{\n\t\t\treturn (c.g - c.b) + 1529.0;\n\t\t}\n\t}\n\telse if (c.g >= c.r && c.g >= c.b)\n\t{\n\t\treturn c.b - c.r + 510.0;\n\t}\n\telse if (c.b >= c.g && c.b >= c.r)\n    {\n\t\treturn c.r - c.g + 1020.0;\n\t}\n}\n\nfloat depthForPointHSV(vec2 texturePoint)\n{       \n     vec2 centerpix = vec2(1.0/width, 1.0/height) * 0.5;\n    texturePoint += centerpix;\n\n    // clamp to texture bounds - 0.5 pixelsize so we do not sample outside our texture\n    texturePoint = clamp(texturePoint, centerpix, vec2(1.0, 0.5) - centerpix);\n    vec4 depthsample = texture2D(map, texturePoint);\n    vec3 depthsamplehsv = rgb2hsv(depthsample.rgb);\n    return depthsamplehsv.b > _DepthBrightnessThreshold + BRIGHTNESS_THRESHOLD_OFFSET ? depthsamplehsv.r : 0.0;\n}\n\nfloat depthForPointColorized(vec2 texturePoint)\n{       \n    vec2 centerpix = vec2(1.0/width, 1.0/height) * 0.5;\n    texturePoint += centerpix;\n\n    // clamp to texture bounds - 0.5 pixelsize so we do not sample outside our texture\n    texturePoint = clamp(texturePoint, centerpix, vec2(1.0, 0.5) - centerpix);\n    vec4 depthsample = texture2D(map, texturePoint);\n    return RGBtoD(depthsample.rgb * 255.0);\n}\n\nvoid main()\n{   \n    vec4 texSize = vec4(1.0 / width, 1.0 / height, width, height);\n    vec2 basetex = position.xy + vec2(0.5,0.5);\n\n    // we align our depth pixel centers with the center of each quad, so we do not require a half pixel offset\n    vec2 depthTexCoord = basetex * vec2(1.0, 0.5);\n    vec2 colorTexCoord = basetex * vec2(1.0, 0.5) + vec2(0.0, 0.5);\n\n    //0 ... 1529\n    //float depth = depthForPointColorized(depthTexCoord);\n    //map to world coordinate\n    //float depthAdjusted = min_disparity + (max_disparity - min_disparity) * depth / 1535.0;\n\n    //deal with disparity\n    //float depthValue = ((1.0 / depthAdjusted) / DEPTH_UNITS) / 1000.0;\n    //float depthValue = ((depthAdjusted) / DEPTH_UNITS) / 1000.0;\n    //float depthValue = ((0.29 + (4.0 - 0.29) * depth / 1535.0) / DEPTH_UNITS + 0.5)/ 1000.0;\n\n    float depth = depthForPointHSV(depthTexCoord);\n    float mindepth = depthMin;\n    float maxdepth = depthMax;\n\n    float depthValue = depth * (maxdepth - mindepth) + mindepth;\n/*\n    vec2 pp = vec2(325.732, 244.086);\n    vec2 ff = vec2(609.178, 609.351);\n\n    float x = basetex.x * width;\n    float y = basetex.y * height;\n\n    x = depthValue * (x - pp.x) / ff.x * DEPTH_UNITS * 1000.0;    \n    y = depthValue * (y - pp.y) / ff.y * DEPTH_UNITS * 1000.0;\n    float z = depthValue * DEPTH_UNITS * 1000.0f; \n*/\n\n    float z = depth * (maxdepth - mindepth) + mindepth;\n    vec2 ortho = basetex * imageDimensions - principalPoint;\n    vec2 proj = ortho * z / focalLength;\n    vec4 worldPos = extrinsics *  vec4(proj.xy, z, 1.0);\n      \n    worldPos.w = 1.0;\n\n    vec4 mvPosition = vec4( worldPos.xyz, 1.0 );\n    mvPosition = modelViewMatrix * mvPosition;\n\n    ptColor = texture2D(map, colorTexCoord);\n    ptColor.a = z < 0.1 || z > 4.0 || depth <= 0.0 ? 0.0 : 1.0;\n\n    gl_Position = projectionMatrix * modelViewMatrix * worldPos;\n    vUv = uv;\n    debug = vec3(1, 0.5, 0.0);\n\n    gl_PointSize = pointSize;\n    gl_PointSize *= ( scale / - mvPosition.z );\n\n}\n"]);
 
 var orthoFrag = glsl(["#define GLSLIFY 1\nuniform sampler2D map;\nuniform float opacity;\nuniform float width;\nuniform float height;\n\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\n#define BRIGHTNESS_THRESHOLD_OFFSET 0.01\n#define FLOAT_EPS 0.00001\n\nconst float _DepthSaturationThreshhold = 0.3; //a given pixel whose saturation is less than half will be culled (old default was .5)\nconst float _DepthBrightnessThreshold = 0.6; //a given pixel whose brightness is less than half will be culled (old default was .9)\n\nvec3 rgb2hsv(vec3 c)\n{\n    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n    float d = q.x - min(q.w, q.y);\n    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + FLOAT_EPS)), d / (q.x + FLOAT_EPS), q.x);\n}\n\nfloat depthForPoint(vec2 texturePoint)\n{\n    vec4 depthsample = texture2D(map, texturePoint);\n    vec3 depthsamplehsv = rgb2hsv(depthsample.rgb);\n    return depthsamplehsv.g > _DepthSaturationThreshhold && depthsamplehsv.b > _DepthBrightnessThreshold ? depthsamplehsv.r : 0.0;\n}\n\nvoid main() {\n\n  /*float verticalScale = 480.0 / 720.0;\n  float verticalOffset = 1.0 - verticalScale;\n  vec2 colorUv = vUv * vec2(0.5, verticalScale) + vec2(0, verticalOffset);\n  vec2 depthUv = colorUv + vec2(0.5, 0.0);*/\n\n    float verticalScale = 0.5;//480.0 / 720.0;\n    float verticalOffset = 1.0 - verticalScale;\n\n    vec2 colorUv = vUv * vec2(1.0, verticalScale) + vec2(0.0, 0.5);\n    vec2 depthUv = colorUv - vec2(0.0, 0.5);\n\n    vec4 colorSample = ptColor;// texture2D(map, colorUv); \n    vec4 depthSample = texture2D(map, depthUv); \n\n    vec3 hsv = rgb2hsv(depthSample.rgb);\n    float depth = hsv.b;\n    float alpha = depth > _DepthBrightnessThreshold + BRIGHTNESS_THRESHOLD_OFFSET ? 1.0 : 0.0;\n\n    if(alpha <= 0.0) {\n      discard;\n    }\n\n    colorSample.a *= (alpha * opacity);\n\n    gl_FragColor = colorSample;//vec4(debug, 1);\n}"]);
 var orthoVert = glsl(["#define GLSLIFY 1\nuniform sampler2D map;\n\nuniform float pointSize;\nuniform float depthMin;\nuniform float depthMax;\nuniform float scale;\nvarying vec4 ptColor;\nvarying vec2 vUv;\nvarying vec3 debug;\n\nconst float _DepthSaturationThreshhold = 0.3; //a given pixel whose saturation is less than half will be culled (old default was .5)\nconst float _DepthBrightnessThreshold = 0.3; //a given pixel whose brightness is less than half will be culled (old default was .9)\nconst float  _Epsilon = .03;\n\n//https://github.com/tobspr/GLSL-Color-Spaces/blob/master/ColorSpaces.inc.glsl\nconst float SRGB_GAMMA = 1.0 / 2.2;\nconst float SRGB_INVERSE_GAMMA = 2.2;\nconst float SRGB_ALPHA = 0.055;\n\n// Converts a single srgb channel to rgb\nfloat srgb_to_linear(float channel) {\n  if (channel <= 0.04045)\n      return channel / 12.92;\n  else\n      return pow((channel + SRGB_ALPHA) / (1.0 + SRGB_ALPHA), 2.4);\n}\n\n// Converts a srgb color to a linear rgb color (exact, not approximated)\nvec3 srgb_to_rgb(vec3 srgb) {\n  return vec3(\n      srgb_to_linear(srgb.r),\n      srgb_to_linear(srgb.g),\n      srgb_to_linear(srgb.b)\n  );\n}\n\n//faster but noisier\nvec3 srgb_to_rgb_approx(vec3 srgb) {\nreturn pow(srgb, vec3(SRGB_INVERSE_GAMMA));\n}\n\nvec3 rgb2hsv(vec3 c)\n{\n  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n\n  float d = q.x - min(q.w, q.y);\n  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + _Epsilon)), d / (q.x + _Epsilon), q.x);\n}\n\nfloat depthForPoint(vec2 texturePoint)\n{\n  vec4 depthsample = texture2D(map, texturePoint);\n  vec3 linear = srgb_to_rgb( depthsample.rgb);\n  vec3 depthsamplehsv = rgb2hsv(linear.rgb);\n  return depthsamplehsv.g > _DepthSaturationThreshhold && depthsamplehsv.b > _DepthBrightnessThreshold ? depthsamplehsv.r : 0.0;\n}\n\nvoid main()\n{\n  float mindepth = depthMin;\n  float maxdepth = depthMax;\n\n  float verticalScale = 0.5;//480.0 / 720.0;\n  float verticalOffset = 1.0 - verticalScale;\n\n  vec2 colorUv = uv * vec2(1.0, verticalScale) + vec2(0.0, 0.5);\n  vec2 depthUv = colorUv - vec2(0.0, 0.5);\n\n  float depth = depthForPoint(depthUv);\n\n  float z = depth * (maxdepth - mindepth) + mindepth;\n  \n  vec4 worldPos = vec4(position.xy, -z, 1.0);\n  worldPos.w = 1.0;\n\n  vec4 mvPosition = vec4( worldPos.xyz, 1.0 );\n  mvPosition = modelViewMatrix * mvPosition;\n\n  ptColor = texture2D(map, colorUv);\n\n  gl_Position = projectionMatrix * modelViewMatrix * worldPos;\n  vUv = uv;\n  debug = vec3(1, 0.5, 0.0);\n  \n  gl_PointSize = pointSize;\n  gl_PointSize *= ( scale / - mvPosition.z );\n\n  //gl_Position =  projectionMatrix * modelViewMatrix * vec4(position,1.0);\n}"]);
@@ -481,12 +484,15 @@ var HLS_TIMEOUT = 2500;
 var schema = {
   videoPath: { type: 'string' },
   meta: { type: 'object', defaults: {} },
-  renderMode: { type: 'string', default: 'ortho' },
+  startat: { type: 'number', default: 0 },
+  renderMode: { type: 'string', default: 'perspective' },
   depthMin: { type: 'number', default: 0.0 },
   depthMax: { type: 'number', default: 3.0 },
   pointSize: { type: 'number', default: 8.0 },
   scale: { type: 'number', default: 1.0 },
-  textureSize: { type: 'vec2', default: { w: 320, h: 240 } }
+  textureSize: { type: 'vec2', default: { w: 320, h: 240 } },
+  thresholdMin: { type: 'vec3', default: { x: -2.0, y: -2.0, z: 0.0 } },
+  thresholdMax: { type: 'vec3', default: { x: 2.0, y: 2.0, z: 4.0 } }
 };
 
 var STREAMEVENTS = exports.STREAMEVENTS = Object.freeze({
@@ -530,8 +536,13 @@ var VPTStream = function (_THREE$Object3D) {
   _createClass(VPTStream, [{
     key: 'updateParameter',
     value: function updateParameter(param, value) {
-      if (this.material) {
-        this.material.uniforms[param].value = value;
+
+      if (param == "startat") {
+        this.video.currentTime = value;
+      } else {
+        if (this.material) {
+          this.material.uniforms[param].value = value;
+        }
       }
     }
   }, {
@@ -549,7 +560,17 @@ var VPTStream = function (_THREE$Object3D) {
         this.params.renderMode = "cutout";
       }
 
-      console.log("STREAMING renderMode ::: " + this.params.renderMode + ", videoPath:" + this.params.videoPath);
+      console.log("vptstream load renderMode: " + this.params.renderMode + ", videoPath:" + this.params.videoPath);
+
+      if (this.material) {
+        console.log("Material exists, dispose");
+        this.material.dispose();
+        var child = this.getObjectByName("VolumetricVideo");
+        if (child) {
+          console.log("VolumetricVideo exists, remove");
+          this.remove(child);
+        }
+      }
 
       this.startVideo(this.params.videoPath);
 
@@ -558,7 +579,6 @@ var VPTStream = function (_THREE$Object3D) {
       switch (this.params.renderMode) {
 
         case "ortho":
-          console.log("STREAMING video in ORTHO mode");
           this.material = new THREE.ShaderMaterial({
             uniforms: {
               "map": {
@@ -601,6 +621,7 @@ var VPTStream = function (_THREE$Object3D) {
 
           var pointsO = new THREE.Points(geometry, this.material);
           pointsO.position.y = 1;
+          pointsO.name = "VolumetricVideo";
           this.add(pointsO);
           break;
 
@@ -640,12 +661,11 @@ var VPTStream = function (_THREE$Object3D) {
             transparent: true
           });
 
-          var plane = new Mesh(geometry, this.material);
+          var plane = new THREE.Mesh(geometry, this.material);
           plane.position.y = 1;
+          plane.name = "VolumetricVideo";
 
           this.add(plane);
-
-          console.log("STREAMING video in PLANE mode");
           break;
 
         case "perspective":
@@ -656,9 +676,6 @@ var VPTStream = function (_THREE$Object3D) {
           var extrinsics = new THREE.Matrix4();
           var ex = this.props.extrinsics;
           extrinsics.set(ex["e00"], ex["e10"], ex["e20"], ex["e30"], ex["e01"], ex["e11"], ex["e21"], ex["e31"], ex["e02"], ex["e12"], ex["e22"], ex["e32"], ex["e03"], ex["e13"], ex["e23"], ex["e33"]);
-
-          var extrinsicsInv = new THREE.Matrix4();
-          extrinsicsInv.getInverse(extrinsics);
 
           //Material
           this.material = new THREE.ShaderMaterial({
@@ -697,6 +714,12 @@ var VPTStream = function (_THREE$Object3D) {
               "height": {
                 value: this.props.textureHeight
               },
+              "thresholdMin": {
+                value: this.params.thresholdMin
+              },
+              "thresholdMax": {
+                value: this.params.thresholdMax
+              },
               "extrinsics": {
                 value: extrinsics
               },
@@ -717,10 +740,99 @@ var VPTStream = function (_THREE$Object3D) {
           this.material.side = THREE.DoubleSide;
 
           var pointP = new THREE.Points(geometry, this.material);
+          pointP.name = "VolumetricVideo";
           pointP.position.y = 1;
           this.add(pointP);
           break;
 
+        /*
+        case "perspective_rl":
+         
+            //so far we have not had to use custom extrinsice for Azure Kinect or Realsense
+            //default could suffice as the alignment is done upstream, when we grab if from the sensor
+            //leaving this here to allow for textures that still need alignment 
+            const extrinsics = new THREE.Matrix4();
+            const ex = this.props.extrinsics;
+            extrinsics.set(
+              ex["e00"], ex["e10"], ex["e20"], ex["e30"],
+              ex["e01"], ex["e11"], ex["e21"], ex["e31"],
+              ex["e02"], ex["e12"], ex["e22"], ex["e32"],
+              ex["e03"], ex["e13"], ex["e23"], ex["e33"]
+            );
+               const extrinsicsInv = new THREE.Matrix4();
+            extrinsicsInv.getInverse(extrinsics);
+               const  min_disparity = 1.0 / 4.0;
+            const  max_disparity = 1.0 / 0.29;
+             
+            //Material
+            this.material = new THREE.ShaderMaterial({
+              uniforms: {
+                "map": {
+                  type: "t",
+                  value: this.texture
+                },
+                "pointSize": {
+                  type: "f",
+                  value: this.params.pointSize
+                },
+                "depthMin": {
+                  type: "f",
+                  value: this.params.depthMin
+                },
+                "depthMax": {
+                  type: "f",
+                  value: this.params.depthMax
+                },
+                "scale": {
+                  value: this.params.scale
+                },
+                "min_disparity": {
+                  type: "f",
+                  value: min_disparity
+                },
+                "max_disparity": {
+                  value: max_disparity
+                },
+                 "focalLength": {
+                  value: this.props.depthFocalLength
+                },
+                "principalPoint": {
+                  value: this.props.depthPrincipalPoint
+                },
+                "imageDimensions": {
+                  value: this.props.depthImageSize
+                },
+                "width":{
+                  value: this.props.textureWidth
+                },
+                "height":{
+                  value: this.props.textureHeight
+                },
+                "extrinsics": {
+                  value: extrinsics
+                },              
+                "opacity": {
+                  type: "f",
+                  value: 1.0
+                }
+              },
+              extensions:
+              {
+                derivatives: true,
+              },
+              vertexShader: rgbdVert_rs2,
+              fragmentShader: rgbdFrag_rs2,
+              transparent: true
+            });
+               //Make the shader material double sided
+            this.material.side = THREE.DoubleSide;
+            
+            let pointP = new THREE.Points(geometry, this.material);
+            pointP.name = "VolumetricVideo";
+            pointP.position.y = 1;
+            this.add(pointP);
+            break;
+            */
       }
     }
 
@@ -842,6 +954,7 @@ var VPTStream = function (_THREE$Object3D) {
       }
 
       this.texture.dispose();
+      this.material.dispose();
     }
   }, {
     key: 'setVideoUrl',
@@ -911,7 +1024,8 @@ var VPTStream = function (_THREE$Object3D) {
             _this4.loadTime = performance.now();
             var _this = _this4;
             _this4.video.play().then(function () {
-              //console.log("Hls success auto playing" );
+              console.log("Hls success auto playing " + _this.params.startat);
+              _this.video.currentTime = _this.params.startat;
               _this.dispatchEvent({ type: STREAMEVENTS.PLAY_SUCCESS, message: "autoplay success" });
               _this.playing = true;
             }).catch(function (error) {
