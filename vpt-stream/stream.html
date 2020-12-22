@@ -208,7 +208,8 @@
 		function update( param, value ){
 			if( param == "scale")
 			{
-				vptstream.scale.set( value,value, value);
+				const ratio = vptstream.scale.x / vptstream.scale.y;
+				vptstream.scale.set( value * ratio,value, value);
 			}
 			vptstream.updateParameter( param, value);
 		}
